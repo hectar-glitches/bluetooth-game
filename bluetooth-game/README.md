@@ -11,14 +11,14 @@ A sophisticated real-time multiplayer space combat game built with Next.js, Type
 - **Particle Systems**: Dynamic visual effects for explosions, engine trails, and impacts
 - **AI Asteroids**: Procedurally generated asteroid field with collision physics
 
-### Cutting-Edge Technology
+### Technology
 - **Web Bluetooth API**: Direct device-to-device communication for multiplayer gameplay
 - **Canvas Rendering**: High-performance 2D graphics with custom rendering pipeline
 - **Web Audio API**: Procedural sound generation and spatial audio effects
 - **TypeScript**: Full type safety with advanced generic types and interfaces
 - **Real-time Networking**: Custom protocol for game state synchronization
 
-### Professional Architecture
+### Architecture
 - **Modular Design**: Separated concerns with dedicated managers for different systems
 - **Performance Optimization**: Efficient game loop with delta time calculations
 - **Memory Management**: Proper cleanup and resource management
@@ -147,11 +147,6 @@ npm run dev
 - **Weapon Customization**: Upgradeable ship components
 - **Spectator Mode**: Real-time match viewing
 - **Analytics Dashboard**: Performance tracking and statistics
-
-## 📝 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
 ---
 
 **Built with passion for cutting-edge web technology and game development excellence.**
