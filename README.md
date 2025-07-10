@@ -131,7 +131,6 @@ npm run dev
 - **Frame Rate**: Consistent 60 FPS on modern devices
 - **Memory Usage**: < 50MB RAM footprint
 - **Network Latency**: < 100ms for local Bluetooth connections
-- **Battery Efficiency**: Optimized for mobile devices
 
 ## 🔮 Future Enhancements
 
@@ -141,5 +140,3 @@ npm run dev
 - **Spectator Mode**: Real-time match viewing
 - **Analytics Dashboard**: Performance tracking and statistics
 ---
-
-**Built with passion for cutting-edge web technology and game development excellence.**
