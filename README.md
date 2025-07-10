@@ -129,7 +129,6 @@ npm run dev
 ## 📈 Performance Metrics
 
 - **Frame Rate**: Consistent 60 FPS on modern devices
-- **Memory Usage**: < 50MB RAM footprint
 
 ## 🔮 Future Enhancements
 
