@@ -112,13 +112,6 @@ npm install
 npm run dev
 \`\`\`
 
-## 🌐 Browser Requirements
-
-- Chrome 56+ (Web Bluetooth support)
-- Edge 79+
-- Opera 43+
-- HTTPS required for production deployment
-
 ## 🎮 Controls
 
 - **WASD**: Ship movement and rotation
