@@ -126,8 +126,6 @@ npm run dev
 - **Cross-platform**: Works on desktop and mobile browsers
 - **Scalable Architecture**: Easily extensible for additional features
 
-## 📈 Performance Metrics
-
 ## 🔮 Future Enhancements
 
 - **Tournament Mode**: Bracket-style competitions
