@@ -130,7 +130,6 @@ npm run dev
 
 - **Frame Rate**: Consistent 60 FPS on modern devices
 - **Memory Usage**: < 50MB RAM footprint
-- **Network Latency**: < 100ms for local Bluetooth connections
 
 ## 🔮 Future Enhancements
 
