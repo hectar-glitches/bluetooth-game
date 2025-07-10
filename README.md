@@ -128,8 +128,6 @@ npm run dev
 
 ## 📈 Performance Metrics
 
-- **Frame Rate**: Consistent 60 FPS on modern devices
-
 ## 🔮 Future Enhancements
 
 - **Tournament Mode**: Bracket-style competitions
