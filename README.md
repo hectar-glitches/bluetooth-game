@@ -1,6 +1,6 @@
 # Stellar Clash - Bluetooth Space Combat Game
 
-A sophisticated real-time multiplayer space combat game built with Next.js, TypeScript, and the Web Bluetooth API. This project showcases advanced web development techniques and game programming concepts perfect for a FAANG+ portfolio.
+A real-time multiplayer space combat game built with Next.js, TypeScript, and the Web Bluetooth API.
 
 ## 🚀 Key Features
 
