@@ -1,73 +1,102 @@
+/**
+ * Represents a 2D vector with x and y coordinates
+ */
 export interface Vector2D {
   x: number
   y: number
 }
 
+/**
+ * Base interface for all game objects with common properties
+ */
 export interface GameObject {
-  id: string
-  position: Vector2D
-  velocity: Vector2D
-  rotation: number
-  health: number
-  maxHealth: number
-  active: boolean
+  id: string                // Unique identifier
+  position: Vector2D        // Current position in the game world
+  velocity: Vector2D        // Current movement speed and direction
+  rotation: number          // Rotation angle in radians
+  health: number            // Current health points
+  maxHealth: number         // Maximum possible health
+  active: boolean           // Whether the object is active in the game
 }
 
+/**
+ * Player entity that extends GameObject with additional player-specific properties
+ */
 export interface Player extends GameObject {
-  playerId: string
-  score: number
-  kills: number
-  deaths: number
-  shield: number
-  maxShield: number
-  energy: number
-  maxEnergy: number
-  weaponCooldown: number
-  boostCooldown: number
+  playerId: string          // Player's unique identifier
+  score: number             // Current score
+  kills: number             // Number of other players killed
+  deaths: number            // Number of times player has died
+  shield: number            // Current shield value
+  maxShield: number         // Maximum shield capacity
+  energy: number            // Current energy level for special abilities
+  maxEnergy: number         // Maximum energy capacity
+  weaponCooldown: number    // Time remaining until player can shoot again
+  boostCooldown: number     // Time remaining until player can boost again
 }
 
+/**
+ * Projectile fired by players that can damage other players and objects
+ */
 export interface Projectile extends GameObject {
-  ownerId: string
-  damage: number
-  lifetime: number
+  ownerId: string           // ID of the player who fired this projectile
+  damage: number            // Amount of damage this projectile deals on hit
+  lifetime: number          // Time remaining before projectile disappears
 }
 
+/**
+ * Power-up item that players can collect for various benefits
+ */
 export interface PowerUp extends GameObject {
-  type: "health" | "shield" | "energy" | "weapon"
-  value: number
-  respawnTime: number
+  type: "health" | "shield" | "energy" | "weapon"  // Type determines effect when collected
+  value: number             // Amount of benefit provided
+  respawnTime: number       // Time until power-up reappears after collection
 }
 
+/**
+ * Obstacle in the game world that players must navigate around
+ */
 export interface Asteroid extends GameObject {
-  size: number
-  rotationSpeed: number
+  size: number              // Size of the asteroid (affects collision radius)
+  rotationSpeed: number     // How fast the asteroid rotates
 }
 
+/**
+ * Visual effect particle for explosions, engine trails, etc.
+ */
 export interface Particle {
-  position: Vector2D
-  velocity: Vector2D
-  color: string
-  life: number
-  maxLife: number
-  size: number
+  position: Vector2D        // Current position
+  velocity: Vector2D        // Movement direction and speed
+  color: string             // CSS color string
+  life: number              // Current lifetime remaining
+  maxLife: number           // Maximum lifetime
+  size: number              // Size of the particle
 }
 
+/**
+ * Main game engine class responsible for managing all game objects, physics, rendering,
+ * player input, and networking.
+ */
 export class GameEngine {
-  private canvas: HTMLCanvasElement
-  private ctx: CanvasRenderingContext2D
-  private players: Map<string, Player> = new Map()
-  private projectiles: Projectile[] = []
-  private powerUps: PowerUp[] = []
-  private asteroids: Asteroid[] = []
-  private particles: Particle[] = []
-  private gameTime = 0
-  private lastUpdate = 0
-  private isHost = false
-  private localPlayerId = ""
-  private keys: Set<string> = new Set()
-  private mouse: { x: number; y: number; pressed: boolean } = { x: 0, y: 0, pressed: false }
-  private networkUpdateCallback?: (data: any) => void
+  private canvas: HTMLCanvasElement               // Drawing surface
+  private ctx: CanvasRenderingContext2D           // Canvas drawing context
+  private players: Map<string, Player> = new Map() // All players in the game
+  private projectiles: Projectile[] = []          // All active projectiles
+  private powerUps: PowerUp[] = []                // All power-ups in the game
+  private asteroids: Asteroid[] = []              // All asteroids in the game
+  private particles: Particle[] = []              // Visual effect particles
+  private gameTime = 0                            // Elapsed game time in seconds
+  private lastUpdate = 0                          // Last update timestamp
+  private isHost = false                          // Whether this client is the host
+  private localPlayerId = ""                      // ID of the local player
+  private keys: Set<string> = new Set()           // Currently pressed keys
+  private mouse: { x: number; y: number; pressed: boolean } = { x: 0, y: 0, pressed: false } // Mouse state
+  private networkUpdateCallback?: (data: any) => void // Callback for sending network updates
 
+  /**
+   * Creates a new GameEngine instance
+   * @param canvas The HTML canvas element where the game will be rendered
+   */
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
     const ctx = canvas.getContext("2d")
@@ -79,6 +108,10 @@ export class GameEngine {
     this.generatePowerUps()
   }
 
+  /**
+   * Sets up event listeners for keyboard and mouse input
+   * @private
+   */
   private setupEventListeners() {
     // Keyboard events
     window.addEventListener("keydown", (e) => {
@@ -113,18 +146,82 @@ export class GameEngine {
     })
   }
 
+  /**
+   * Initializes the game in host mode
+   * @param playerId The unique identifier for the host player
+   */
   initializeAsHost(playerId: string) {
     this.isHost = true
     this.localPlayerId = playerId
     this.createPlayer(playerId, "Host", { x: 100, y: 300 })
   }
 
+  /**
+   * Initializes the game in client mode
+   * @param playerId The unique identifier for the client player
+   */
   initializeAsClient(playerId: string) {
     this.isHost = false
     this.localPlayerId = playerId
     this.createPlayer(playerId, "Client", { x: 700, y: 300 })
   }
+  
+  private _debugMode = false;
+  private _debugInterval: any = null;
+  
+  /**
+   * Adds a computer-controlled player for debugging/testing without a second player
+   * @param playerId The unique identifier for the debug player
+   */
+  addDebugPlayer(playerId: string) {
+    // This method is used only in debug mode to add a simulated second player
+    this._debugMode = true;
+    this.createPlayer(playerId, "Debug Player", { x: 700, y: 300 });
+    
+    // Set up auto-movement for the debug player
+    this._debugInterval = setInterval(() => {
+      const debugPlayer = this.players.get(playerId);
+      if (debugPlayer) {
+        // Simple AI behavior - random movement
+        const randomX = (Math.random() - 0.5) * 2;
+        const randomY = (Math.random() - 0.5) * 2;
+        
+        debugPlayer.velocity.x = randomX * 100;
+        debugPlayer.velocity.y = randomY * 100;
+        
+        // Occasionally shoot
+        if (Math.random() > 0.95) {
+          // Create a projectile for the debug player
+          const projectile: Projectile = {
+            id: `projectile_${Date.now()}_${Math.random()}`,
+            position: { ...debugPlayer.position },
+            velocity: {
+              x: Math.cos(debugPlayer.rotation) * 400,
+              y: Math.sin(debugPlayer.rotation) * 400,
+            },
+            rotation: debugPlayer.rotation,
+            health: 1,
+            maxHealth: 1,
+            ownerId: debugPlayer.playerId,
+            damage: 25,
+            lifetime: 3,
+            active: true,
+          };
+          
+          this.projectiles.push(projectile);
+        }
+      }
+    }, 100);
+  }
 
+  /**
+   * Creates a new player and adds them to the game
+   * @param id The unique identifier for the player
+   * @param name The display name for the player
+   * @param position The starting position for the player
+   * @returns The newly created Player object
+   * @private
+   */
   private createPlayer(id: string, name: string, position: Vector2D): Player {
     const player: Player = {
       id,
@@ -150,18 +247,24 @@ export class GameEngine {
     return player
   }
 
+  /**
+   * Generates asteroids and places them randomly in the game world
+   * @private
+   */
   private generateAsteroids() {
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 25; i++) {
       const asteroid: Asteroid = {
         id: `asteroid_${i}`,
         position: {
           x: Math.random() * this.canvas.width,
           y: Math.random() * this.canvas.height,
         },
+
         velocity: {
           x: (Math.random() - 0.5) * 2,
           y: (Math.random() - 0.5) * 2,
         },
+
         rotation: Math.random() * Math.PI * 2,
         rotationSpeed: (Math.random() - 0.5) * 0.1,
         health: 50,
@@ -169,10 +272,15 @@ export class GameEngine {
         size: 20 + Math.random() * 30,
         active: true,
       }
+
       this.asteroids.push(asteroid)
     }
   }
 
+  /**
+   * Generates power-ups and places them randomly in the game world
+   * @private
+   */
   private generatePowerUps() {
     const types: PowerUp["type"][] = ["health", "shield", "energy", "weapon"]
 
@@ -183,6 +291,7 @@ export class GameEngine {
           x: Math.random() * this.canvas.width,
           y: Math.random() * this.canvas.height,
         },
+
         velocity: { x: 0, y: 0 },
         rotation: 0,
         health: 1,
@@ -196,6 +305,10 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Main game update loop that advances the game state
+   * Updates all game objects, handles physics, collisions, and networking
+   */
   update() {
     const now = performance.now()
     const deltaTime = (now - this.lastUpdate) / 1000
@@ -214,6 +327,11 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Updates all players' positions, physics, and regeneration
+   * @param deltaTime Time elapsed since the last update in seconds
+   * @private
+   */
   private updatePlayers(deltaTime: number) {
     const localPlayer = this.players.get(this.localPlayerId)
     if (!localPlayer) return
@@ -255,6 +373,13 @@ export class GameEngine {
     })
   }
 
+  /**
+   * Processes player input for movement, rotation, boost, and targeting.
+   * Handles keyboard input for movement and special actions, as well as mouse input for aiming.
+   * 
+   * @param player The player object to update based on input
+   * @param deltaTime Time elapsed since the last frame in seconds
+   */
   private handlePlayerInput(player: Player, deltaTime: number) {
     const speed = 200
     const rotationSpeed = 3
@@ -302,6 +427,10 @@ export class GameEngine {
     player.rotation = Math.atan2(dy, dx)
   }
 
+  /**
+   * Handles the player shooting mechanic when mouse is pressed.
+   * Creates projectiles, applies cooldown, consumes energy, and generates visual effects.
+   */
   private handleShooting() {
     const player = this.players.get(this.localPlayerId)
     if (!player || player.weaponCooldown > 0 || player.energy < 10) return
@@ -330,6 +459,12 @@ export class GameEngine {
     this.addMuzzleFlashParticles(player)
   }
 
+  /**
+   * Updates all projectiles in the game, handling movement, lifetime, and boundary checks.
+   * Removes projectiles that have expired or gone out of bounds.
+   * 
+   * @param deltaTime Time elapsed since the last frame in seconds
+   */
   private updateProjectiles(deltaTime: number) {
     this.projectiles = this.projectiles.filter((projectile) => {
       projectile.position.x += projectile.velocity.x * deltaTime
@@ -395,6 +530,13 @@ export class GameEngine {
     })
   }
 
+  /**
+   * Checks for collisions between game objects and handles the results.
+   * Detects and handles the following collision types:
+   * - Player vs Projectile: Damages players when hit by projectiles
+   * - Player vs PowerUp: Applies power-up effects to players
+   * - Projectile vs Asteroid: Damages asteroids and potentially destroys them
+   */
   private checkCollisions() {
     // Player vs Projectile collisions
     this.players.forEach((player) => {
@@ -431,6 +573,13 @@ export class GameEngine {
     })
   }
 
+  /**
+   * Handles damage calculation and effects when a player is hit by a projectile.
+   * Applies damage to shields first, then to health, and creates visual hit effects.
+   * 
+   * @param player The player that was hit
+   * @param projectile The projectile that hit the player
+   */
   private handlePlayerHit(player: Player, projectile: Projectile) {
     let damage = projectile.damage
 
@@ -498,6 +647,12 @@ export class GameEngine {
     this.addCollectionParticles(powerUp.position, this.getPowerUpColor(powerUp.type))
   }
 
+  /**
+   * Creates engine exhaust particle effects behind a player ship when moving forward.
+   * Particles are orange/yellow in color and appear at the back of the ship.
+   * 
+   * @param player The player object to create particles for
+   */
   private addEngineParticles(player: Player) {
     for (let i = 0; i < 3; i++) {
       const particle: Particle = {
@@ -518,6 +673,12 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Creates boost effect particles when a player uses the boost ability.
+   * Particles are blue in color and radiate outward in all directions.
+   * 
+   * @param player The player object to create particles for
+   */
   private addBoostParticles(player: Player) {
     for (let i = 0; i < 8; i++) {
       const particle: Particle = {
@@ -535,6 +696,12 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Creates muzzle flash particles when a player fires a weapon.
+   * Particles appear at the front of the ship and travel in the direction of fire.
+   * 
+   * @param player The player object to create particles for
+   */
   private addMuzzleFlashParticles(player: Player) {
     for (let i = 0; i < 5; i++) {
       const particle: Particle = {
@@ -609,6 +776,13 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Calculates the Euclidean distance between two points.
+   * 
+   * @param pos1 First position vector
+   * @param pos2 Second position vector
+   * @returns The distance between the two points
+   */
   private getDistance(pos1: Vector2D, pos2: Vector2D): number {
     const dx = pos1.x - pos2.x
     const dy = pos1.y - pos2.y
@@ -630,6 +804,11 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Renders the entire game scene to the canvas.
+   * Draws the space background, stars, game objects (asteroids, power-ups, projectiles),
+   * particles for visual effects, and player ships.
+   */
   render() {
     // Clear canvas with space background
     this.ctx.fillStyle = "#0a0a0f"
@@ -659,6 +838,10 @@ export class GameEngine {
     this.drawUI()
   }
 
+  /**
+   * Draws the starfield background effect on the canvas.
+   * Creates a parallax-like star background with varying opacity.
+   */
   private drawStars() {
     this.ctx.fillStyle = "#ffffff"
     for (let i = 0; i < 100; i++) {
@@ -671,6 +854,12 @@ export class GameEngine {
     this.ctx.globalAlpha = 1
   }
 
+  /**
+   * Renders a player ship on the canvas with visual indicators for shields and health.
+   * The local player's ship is colored differently than other players.
+   * 
+   * @param player The player object to render
+   */
   private drawPlayer(player: Player) {
     this.ctx.save()
     this.ctx.translate(player.position.x, player.position.y)
@@ -705,6 +894,12 @@ export class GameEngine {
     this.drawHealthBar(player)
   }
 
+  /**
+   * Draws a health and shield status bar above a player's ship.
+   * Shows current health as a red bar and shield as a blue bar if active.
+   * 
+   * @param player The player object whose health bar to render
+   */
   private drawHealthBar(player: Player) {
     const barWidth = 30
     const barHeight = 4
@@ -726,6 +921,11 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Renders a projectile (bullet) on the canvas.
+   * 
+   * @param projectile The projectile object to render
+   */
   private drawProjectile(projectile: Projectile) {
     this.ctx.save()
     this.ctx.translate(projectile.position.x, projectile.position.y)
@@ -737,6 +937,12 @@ export class GameEngine {
     this.ctx.restore()
   }
 
+  /**
+   * Renders an asteroid with a randomized jagged appearance.
+   * Asteroids have varying sizes and rotation speeds.
+   * 
+   * @param asteroid The asteroid object to render
+   */
   private drawAsteroid(asteroid: Asteroid) {
     this.ctx.save()
     this.ctx.translate(asteroid.position.x, asteroid.position.y)
@@ -766,6 +972,12 @@ export class GameEngine {
     this.ctx.restore()
   }
 
+  /**
+   * Renders a power-up item on the canvas.
+   * Different power-up types have unique visual appearances.
+   * 
+   * @param powerUp The power-up object to render
+   */
   private drawPowerUp(powerUp: PowerUp) {
     this.ctx.save()
     this.ctx.translate(powerUp.position.x, powerUp.position.y)
@@ -828,6 +1040,12 @@ export class GameEngine {
     this.ctx.restore()
   }
 
+  /**
+   * Renders a particle effect on the canvas.
+   * Particles fade out over time and vary in color based on their type.
+   * 
+   * @param particle The particle object to render
+   */
   private drawParticle(particle: Particle) {
     const alpha = particle.life / particle.maxLife
     this.ctx.globalAlpha = alpha
@@ -962,5 +1180,10 @@ export class GameEngine {
   cleanup() {
     window.removeEventListener("keydown", () => {})
     window.removeEventListener("keyup", () => {})
+    
+    if (this._debugInterval) {
+      clearInterval(this._debugInterval);
+      this._debugInterval = null;
+    }
   }
 }

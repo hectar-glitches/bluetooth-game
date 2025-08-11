@@ -44,6 +44,7 @@ export default function StellarClash() {
   const [isHost, setIsHost] = useState<boolean>(false)
   const [playerId, setPlayerId] = useState<string>("")
   const [error, setError] = useState<string>("")
+  const [debugMode, setDebugMode] = useState<boolean>(false)
   const [gameStats, setGameStats] = useState<GameStats>({
     players: [],
     gameTime: 0,
@@ -110,6 +111,26 @@ export default function StellarClash() {
   const startAsHost = async () => {
     try {
       setError("")
+      
+      if (debugMode) {
+        // In debug mode, we'll simulate both players locally
+        const hostId = `host_${Date.now()}`
+        const clientId = `client_${Date.now()}`
+        
+        setPlayerId(hostId)
+        setIsHost(true)
+        setConnectionState("connected")
+        
+        if (gameEngineRef.current) {
+          // Initialize the game engine with both players
+          gameEngineRef.current.initializeAsHost(hostId)
+          // Add a simulated second player
+          gameEngineRef.current.addDebugPlayer(clientId)
+        }
+        
+        return
+      }
+      
       if (!bluetoothManagerRef.current) return
 
       const id = await bluetoothManagerRef.current.startAsHost()
@@ -153,7 +174,11 @@ export default function StellarClash() {
   }
 
   const pauseGame = () => {
-    setGameState(gameState === "paused" ? "playing" : "paused")
+    if (gameState === "paused") {
+      setGameState("playing");
+    } else if (gameState === "playing") {
+      setGameState("paused");
+    }
   }
 
   const resetGame = () => {
@@ -203,20 +228,20 @@ export default function StellarClash() {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white">
       <div className="container mx-auto p-4">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-center items-center mb-6">
           <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+            <h1 className="text-center text-4xl font-bold bg-gradient-to-t from-green-400 to-purple-400 bg-clip-text text-transparent">
               Stellar Clash
             </h1>
-            <p className="text-gray-400">Real-time Bluetooth Space Combat</p>
+            <p className="text-center text-gray-400">Real-time Bluetooth Space Combat</p>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex gap-4">
             <Button variant="ghost" size="sm" onClick={toggleSound} className="text-white hover:bg-white/10">
               {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </Button>
 
-            <div className="flex items-center gap-2">
+            <div className="flex gap-2">
               {getStatusIcon()}
               <Badge variant={connectionState === "connected" ? "default" : "secondary"}>{connectionState}</Badge>
             </div>
@@ -225,7 +250,7 @@ export default function StellarClash() {
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Game Canvas */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-4">
             <Card className="bg-black/50 border-gray-700">
               <CardContent className="p-0">
                 <div className="relative">
@@ -243,14 +268,33 @@ export default function StellarClash() {
                         <h2 className="text-2xl font-bold">Ready to Battle?</h2>
                         {connectionState === "disconnected" ? (
                           <div className="space-y-3">
+                            <div className="flex items-center justify-center gap-3 mb-3">
+                              <div className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  id="debug-mode"
+                                  checked={debugMode}
+                                  onChange={() => setDebugMode(!debugMode)}
+                                  className="mr-2 h-4 w-4"
+                                />
+                                <label htmlFor="debug-mode" className="text-sm">Debug Mode</label>
+                              </div>
+                              {debugMode && (
+                                <span className="text-xs text-gray-400">
+                                  (Test locally without Bluetooth)
+                                </span>
+                              )}
+                            </div>
                             <Button onClick={startAsHost} size="lg" className="w-full">
                               <Users className="w-4 h-4 mr-2" />
-                              Host Battle
+                              {debugMode ? "Start Debug Game" : "Host Battle"}
                             </Button>
-                            <Button onClick={joinGame} variant="outline" size="lg" className="w-full bg-transparent">
-                              <Bluetooth className="w-4 h-4 mr-2" />
-                              Join Battle
-                            </Button>
+                            {!debugMode && (
+                              <Button onClick={joinGame} variant="outline" size="lg" className="w-full">
+                                <Bluetooth className="w-4 h-4 mr-2" />
+                                Join Battle
+                              </Button>
+                            )}
                           </div>
                         ) : connectionState === "connected" ? (
                           <Button onClick={startGame} size="lg">
@@ -296,7 +340,7 @@ export default function StellarClash() {
             </Card>
 
             {/* Controls */}
-            <Card className="mt-4 bg-black/30 border-gray-700">
+            <Card className="mt-4 bg-white/30 border-gray-700">
               <CardHeader className="pb-2">
                 <div className="flex justify-between items-center">
                   <CardTitle className="text-lg">Controls</CardTitle>
@@ -315,7 +359,7 @@ export default function StellarClash() {
                     </div>
                     <div>
                       <div className="font-semibold mb-2">Combat</div>
-                      <div>Click - Fire weapons</div>
+                      <div>Mouse tap - Fire weapons</div>
                       <div>Space - Boost</div>
                     </div>
                   </div>
@@ -325,80 +369,84 @@ export default function StellarClash() {
           </div>
 
           {/* Game Stats Panel */}
-          <div className="space-y-4">
-            {/* Player Stats */}
-            <Card className="bg-black/30 border-gray-700">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Player Stats</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {gameStats.players.map((player) => (
-                  <div key={player.id} className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium">{player.name}</span>
-                      <Badge variant="outline">{player.score}</Badge>
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span>Health</span>
-                        <span>{player.health}%</span>
+          <div className="lg:col-span-4">
+            <div className="space-y-4">
+              {/* Player Stats and Battle Info side by side */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Player Stats - Left */}
+              <Card className="w-full bg-white/30 border-gray-700">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg text-center">Player Stats</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {gameStats.players.map((player) => (
+                    <div key={player.id} className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">{player.name}</span>
+                        <Badge variant="outline">{player.score}</Badge>
                       </div>
-                      <Progress value={player.health} className="h-2" />
-                    </div>
 
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span>Shield</span>
-                        <span>{player.shield}%</span>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span>Health</span>
+                          <span>{player.health}%</span>
+                        </div>
+                        <Progress value={player.health} className="h-2" />
                       </div>
-                      <Progress value={player.shield} className="h-2 bg-blue-900" />
-                    </div>
 
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span>Energy</span>
-                        <span>{player.energy}%</span>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span>Shield</span>
+                          <span>{player.shield}%</span>
+                        </div>
+                        <Progress value={player.shield} className="h-2 bg-blue-900" />
                       </div>
-                      <Progress value={player.energy} className="h-2 bg-yellow-900" />
-                    </div>
 
-                    <div className="flex justify-between text-xs text-gray-400">
-                      <span>K: {player.kills}</span>
-                      <span>D: {player.deaths}</span>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span>Energy</span>
+                          <span>{player.energy}%</span>
+                        </div>
+                        <Progress value={player.energy} className="h-2 bg-yellow-900" />
+                      </div>
+
+                      <div className="flex justify-between text-xs text-gray-400">
+                        <span>K: {player.kills}</span>
+                        <span>D: {player.deaths}</span>
+                      </div>
                     </div>
+                  ))}
+                </CardContent>
+              </Card>
+
+              {/* Battle Info - Right */}
+              <Card className="w-full bg-white/30 border-gray-700">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xl">Battle Info</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="flex justify-between">
+                    <span>Time</span>
+                    <span>{formatTime(gameStats.gameTime)}</span>
                   </div>
-                ))}
-              </CardContent>
-            </Card>
-
-            {/* Game Info */}
-            <Card className="bg-black/30 border-gray-700">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Battle Info</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="flex justify-between">
-                  <span>Time</span>
-                  <span>{formatTime(gameStats.gameTime)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Power-ups</span>
-                  <span>{gameStats.powerUpsCollected}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Total Shots</span>
-                  <span>{gameStats.totalShots}</span>
-                </div>
-              </CardContent>
-            </Card>
+                  <div className="flex justify-between">
+                    <span>Power-ups</span>
+                    <span>{gameStats.powerUpsCollected}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Total Shots</span>
+                    <span>{gameStats.totalShots}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
 
             {/* Game Actions */}
             {gameState === "playing" && (
-              <Card className="bg-black/30 border-gray-700">
+              <Card className="bg-white/30 border-gray-700">
                 <CardContent className="pt-6 space-y-2">
                   <Button onClick={pauseGame} variant="outline" className="w-full bg-transparent">
-                    {gameState === "paused" ? "Resume" : "Pause"}
+                    Pause
                   </Button>
                   <Button onClick={disconnect} variant="destructive" className="w-full">
                     Disconnect
@@ -407,13 +455,13 @@ export default function StellarClash() {
               </Card>
             )}
 
-            {/* Technical Info */}
-            <Card className="bg-black/30 border-gray-700">
+            {/* Technical Info - Full Width */}
+            <Card className="w-full bg-white/30 border-gray-700">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Technical Features</CardTitle>
               </CardHeader>
               <CardContent>
-                <ul className="text-xs space-y-1 text-gray-400">
+                <ul className="bg-blue text-blue text-xs space-y-1 text-gray-400">
                   <li>• Real-time physics simulation</li>
                   <li>• Bluetooth P2P networking</li>
                   <li>• Canvas-based rendering</li>
@@ -424,6 +472,7 @@ export default function StellarClash() {
                 </ul>
               </CardContent>
             </Card>
+            </div>
           </div>
         </div>
 

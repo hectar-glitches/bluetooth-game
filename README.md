@@ -100,7 +100,7 @@ This project demonstrates mastery of:
 
 \`\`\`bash
 # Clone the repository
-git clone https://github.com/yourusername/stellar-clash.git
+git clone https://github.com/$yourusername$/stellar-clash.git
 
 # Navigate to project directory
 cd stellar-clash
