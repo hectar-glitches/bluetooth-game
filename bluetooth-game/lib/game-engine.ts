@@ -1,3 +1,48 @@
+import { z } from "zod"
+import { AudioManager } from "./audio-manager"
+
+/**
+ * Game configuration constants for balance and physics tuning.
+ * Centralizing these values makes it easy to adjust game feel without
+ * hunting through the entire codebase.
+ */
+export const GAME_CONFIG = {
+  PROJECTILE_DAMAGE: 25,
+  PROJECTILE_SPEED: 400,
+  PROJECTILE_LIFETIME: 3,
+  WEAPON_COOLDOWN: 0.2,
+  WEAPON_ENERGY_COST: 10,
+  BOOST_ENERGY_COST: 20,
+  BOOST_COOLDOWN: 1,
+  BOOST_POWER: 10,
+  SHIELD_REGEN_RATE: 10,
+  ENERGY_REGEN_RATE: 20,
+  PLAYER_DRAG: 0.98,
+  KILL_SCORE: 100,
+  WIN_SCORE: 1000,
+  GAME_DURATION: 300,
+} as const
+
+// Zod schema for runtime validation of incoming (untrusted) network data
+const Vector2DSchema = z.object({ x: z.number(), y: z.number() })
+const NetworkGameDataSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("ping"), timestamp: z.number() }),
+  z.object({
+    type: z.literal("playerUpdate"),
+    playerId: z.string(),
+    position: Vector2DSchema,
+    rotation: z.number(),
+    health: z.number().min(0),
+    shield: z.number().min(0),
+    energy: z.number().min(0),
+  }),
+])
+
+/**
+ * Type representing valid network messages exchanged between players
+ */
+export type NetworkGameData = z.infer<typeof NetworkGameDataSchema>
+
 /**
  * Represents a 2D vector with x and y coordinates
  */
@@ -91,7 +136,39 @@ export class GameEngine {
   private localPlayerId = ""                      // ID of the local player
   private keys: Set<string> = new Set()           // Currently pressed keys
   private mouse: { x: number; y: number; pressed: boolean } = { x: 0, y: 0, pressed: false } // Mouse state
-  private networkUpdateCallback?: (data: any) => void // Callback for sending network updates
+  private networkUpdateCallback?: (data: NetworkGameData) => void // Callback for sending network updates
+  private audioManager?: AudioManager             // Optional audio manager for sound effects
+
+  // Stored event handler references so they can be properly removed in cleanup()
+  private readonly handleKeyDown = (e: KeyboardEvent): void => {
+    this.keys.add(e.code)
+    if (e.code === "Space") {
+      e.preventDefault()
+    }
+  }
+
+  private readonly handleKeyUp = (e: KeyboardEvent): void => {
+    this.keys.delete(e.code)
+  }
+
+  private readonly handleMouseMove = (e: MouseEvent): void => {
+    const rect = this.canvas.getBoundingClientRect()
+    this.mouse.x = e.clientX - rect.left
+    this.mouse.y = e.clientY - rect.top
+  }
+
+  private readonly handleMouseDown = (e: MouseEvent): void => {
+    if (e.button === 0) {
+      this.mouse.pressed = true
+      this.handleShooting()
+    }
+  }
+
+  private readonly handleMouseUp = (e: MouseEvent): void => {
+    if (e.button === 0) {
+      this.mouse.pressed = false
+    }
+  }
 
   /**
    * Creates a new GameEngine instance
@@ -109,41 +186,19 @@ export class GameEngine {
   }
 
   /**
-   * Sets up event listeners for keyboard and mouse input
+   * Sets up event listeners for keyboard and mouse input.
+   * Listeners are stored as class properties so they can be removed in cleanup().
    * @private
    */
   private setupEventListeners() {
     // Keyboard events
-    window.addEventListener("keydown", (e) => {
-      this.keys.add(e.code)
-      if (e.code === "Space") {
-        e.preventDefault()
-      }
-    })
-
-    window.addEventListener("keyup", (e) => {
-      this.keys.delete(e.code)
-    })
+    window.addEventListener("keydown", this.handleKeyDown)
+    window.addEventListener("keyup", this.handleKeyUp)
 
     // Mouse events
-    this.canvas.addEventListener("mousemove", (e) => {
-      const rect = this.canvas.getBoundingClientRect()
-      this.mouse.x = e.clientX - rect.left
-      this.mouse.y = e.clientY - rect.top
-    })
-
-    this.canvas.addEventListener("mousedown", (e) => {
-      if (e.button === 0) {
-        this.mouse.pressed = true
-        this.handleShooting()
-      }
-    })
-
-    this.canvas.addEventListener("mouseup", (e) => {
-      if (e.button === 0) {
-        this.mouse.pressed = false
-      }
-    })
+    this.canvas.addEventListener("mousemove", this.handleMouseMove)
+    this.canvas.addEventListener("mousedown", this.handleMouseDown)
+    this.canvas.addEventListener("mouseup", this.handleMouseUp)
   }
 
   /**
@@ -164,6 +219,14 @@ export class GameEngine {
     this.isHost = false
     this.localPlayerId = playerId
     this.createPlayer(playerId, "Client", { x: 700, y: 300 })
+  }
+
+  /**
+   * Connects an AudioManager so the game engine can trigger sound effects.
+   * @param manager The AudioManager instance to use for sound effects
+   */
+  setAudioManager(manager: AudioManager) {
+    this.audioManager = manager
   }
   
   private _debugMode = false;
@@ -346,8 +409,8 @@ export class GameEngine {
       player.position.y += player.velocity.y * deltaTime * 60
 
       // Apply drag
-      player.velocity.x *= 0.98
-      player.velocity.y *= 0.98
+      player.velocity.x *= GAME_CONFIG.PLAYER_DRAG
+      player.velocity.y *= GAME_CONFIG.PLAYER_DRAG
 
       // Wrap around screen
       if (player.position.x < 0) player.position.x = this.canvas.width
@@ -357,10 +420,10 @@ export class GameEngine {
 
       // Regenerate shield and energy
       if (player.shield < player.maxShield) {
-        player.shield = Math.min(player.maxShield, player.shield + 10 * deltaTime)
+        player.shield = Math.min(player.maxShield, player.shield + GAME_CONFIG.SHIELD_REGEN_RATE * deltaTime)
       }
       if (player.energy < player.maxEnergy) {
-        player.energy = Math.min(player.maxEnergy, player.energy + 20 * deltaTime)
+        player.energy = Math.min(player.maxEnergy, player.energy + GAME_CONFIG.ENERGY_REGEN_RATE * deltaTime)
       }
 
       // Update cooldowns
@@ -381,7 +444,6 @@ export class GameEngine {
    * @param deltaTime Time elapsed since the last frame in seconds
    */
   private handlePlayerInput(player: Player, deltaTime: number) {
-    const speed = 200
     const rotationSpeed = 3
 
     // Movement
@@ -406,13 +468,13 @@ export class GameEngine {
     }
 
     // Boost
-    if (this.keys.has("Space") && player.energy > 20 && player.boostCooldown <= 0) {
-      const boostPower = 10
-      player.velocity.x += Math.cos(player.rotation) * boostPower * deltaTime
-      player.velocity.y += Math.sin(player.rotation) * boostPower * deltaTime
-      player.energy -= 20
-      player.boostCooldown = 1
+    if (this.keys.has("Space") && player.energy > GAME_CONFIG.BOOST_ENERGY_COST && player.boostCooldown <= 0) {
+      player.velocity.x += Math.cos(player.rotation) * GAME_CONFIG.BOOST_POWER * deltaTime
+      player.velocity.y += Math.sin(player.rotation) * GAME_CONFIG.BOOST_POWER * deltaTime
+      player.energy -= GAME_CONFIG.BOOST_ENERGY_COST
+      player.boostCooldown = GAME_CONFIG.BOOST_COOLDOWN
 
+      this.audioManager?.playBoost()
       this.addBoostParticles(player)
     }
 
@@ -427,34 +489,31 @@ export class GameEngine {
     player.rotation = Math.atan2(dy, dx)
   }
 
-  /**
-   * Handles the player shooting mechanic when mouse is pressed.
-   * Creates projectiles, applies cooldown, consumes energy, and generates visual effects.
-   */
   private handleShooting() {
     const player = this.players.get(this.localPlayerId)
-    if (!player || player.weaponCooldown > 0 || player.energy < 10) return
+    if (!player || player.weaponCooldown > 0 || player.energy < GAME_CONFIG.WEAPON_ENERGY_COST) return
 
     const projectile: Projectile = {
       id: `projectile_${Date.now()}_${Math.random()}`,
       position: { ...player.position },
       velocity: {
-        x: Math.cos(player.rotation) * 400,
-        y: Math.sin(player.rotation) * 400,
+        x: Math.cos(player.rotation) * GAME_CONFIG.PROJECTILE_SPEED,
+        y: Math.sin(player.rotation) * GAME_CONFIG.PROJECTILE_SPEED,
       },
       rotation: player.rotation,
       health: 1,
       maxHealth: 1,
       ownerId: player.playerId,
-      damage: 25,
-      lifetime: 3,
+      damage: GAME_CONFIG.PROJECTILE_DAMAGE,
+      lifetime: GAME_CONFIG.PROJECTILE_LIFETIME,
       active: true,
     }
 
     this.projectiles.push(projectile)
-    player.weaponCooldown = 0.2
-    player.energy -= 10
+    player.weaponCooldown = GAME_CONFIG.WEAPON_COOLDOWN
+    player.energy -= GAME_CONFIG.WEAPON_ENERGY_COST
 
+    this.audioManager?.playLaserShot()
     // Add muzzle flash particles
     this.addMuzzleFlashParticles(player)
   }
@@ -596,6 +655,7 @@ export class GameEngine {
     }
 
     this.addHitParticles(player.position)
+    this.audioManager?.playHit()
 
     // Check if player is destroyed
     if (player.health <= 0) {
@@ -619,9 +679,10 @@ export class GameEngine {
     const killer = this.players.get(killerId)
     if (killer) {
       killer.kills++
-      killer.score += 100
+      killer.score += GAME_CONFIG.KILL_SCORE
     }
 
+    this.audioManager?.playExplosion()
     this.addExplosionParticles(player.position, "red")
   }
 
@@ -644,6 +705,7 @@ export class GameEngine {
     powerUp.active = false
     powerUp.respawnTime = 10 + Math.random() * 10
 
+    this.audioManager?.playPowerUp()
     this.addCollectionParticles(powerUp.position, this.getPowerUpColor(powerUp.type))
   }
 
@@ -1122,8 +1184,11 @@ export class GameEngine {
   }
 
   isGameFinished(): boolean {
-    // Game ends after 5 minutes or when a player reaches 1000 points
-    return this.gameTime > 300 || Array.from(this.players.values()).some((p) => p.score >= 1000)
+    // Game ends after the configured duration or when a player reaches the win score
+    return (
+      this.gameTime > GAME_CONFIG.GAME_DURATION ||
+      Array.from(this.players.values()).some((p) => p.score >= GAME_CONFIG.WIN_SCORE)
+    )
   }
 
   getGameStats() {
@@ -1144,16 +1209,23 @@ export class GameEngine {
     }
   }
 
-  handleNetworkUpdate(data: any) {
-    // Handle incoming network data from other player
-    if (data.type === "playerUpdate" && data.playerId !== this.localPlayerId) {
-      const player = this.players.get(data.playerId)
+  handleNetworkUpdate(data: unknown) {
+    // Validate and parse incoming network data before using it
+    const result = NetworkGameDataSchema.safeParse(data)
+    if (!result.success) {
+      console.warn("Received invalid network data:", result.error.issues)
+      return
+    }
+
+    const parsed = result.data
+    if (parsed.type === "playerUpdate" && parsed.playerId !== this.localPlayerId) {
+      const player = this.players.get(parsed.playerId)
       if (player) {
-        player.position = data.position
-        player.rotation = data.rotation
-        player.health = data.health
-        player.shield = data.shield
-        player.energy = data.energy
+        player.position = parsed.position
+        player.rotation = parsed.rotation
+        player.health = parsed.health
+        player.shield = parsed.shield
+        player.energy = parsed.energy
       }
     }
   }
@@ -1162,7 +1234,7 @@ export class GameEngine {
     const localPlayer = this.players.get(this.localPlayerId)
     if (!localPlayer || !this.networkUpdateCallback) return
 
-    this.networkUpdateCallback({
+    const update: NetworkGameData = {
       type: "playerUpdate",
       playerId: this.localPlayerId,
       position: localPlayer.position,
@@ -1170,17 +1242,24 @@ export class GameEngine {
       health: localPlayer.health,
       shield: localPlayer.shield,
       energy: localPlayer.energy,
-    })
+    }
+    this.networkUpdateCallback(update)
   }
 
-  setNetworkUpdateCallback(callback: (data: any) => void) {
+  setNetworkUpdateCallback(callback: (data: NetworkGameData) => void) {
     this.networkUpdateCallback = callback
   }
 
   cleanup() {
-    window.removeEventListener("keydown", () => {})
-    window.removeEventListener("keyup", () => {})
-    
+    // Remove keyboard listeners using the same function references that were registered
+    window.removeEventListener("keydown", this.handleKeyDown)
+    window.removeEventListener("keyup", this.handleKeyUp)
+
+    // Remove canvas mouse listeners
+    this.canvas.removeEventListener("mousemove", this.handleMouseMove)
+    this.canvas.removeEventListener("mousedown", this.handleMouseDown)
+    this.canvas.removeEventListener("mouseup", this.handleMouseUp)
+
     if (this._debugInterval) {
       clearInterval(this._debugInterval);
       this._debugInterval = null;

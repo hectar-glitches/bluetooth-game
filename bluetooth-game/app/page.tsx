@@ -10,6 +10,7 @@ import { Bluetooth, Users, Wifi, WifiOff, Trophy, Target, Gamepad2, Volume2, Vol
 import { GameEngine } from "@/lib/game-engine"
 import { BluetoothManager } from "@/lib/bluetooth-manager"
 import { AudioManager } from "@/lib/audio-manager"
+import type { NetworkGameData } from "@/lib/game-engine"
 
 type ConnectionState = "disconnected" | "connecting" | "connected"
 type GameState = "lobby" | "playing" | "paused" | "finished"
@@ -62,8 +63,9 @@ export default function StellarClash() {
     // Initialize game engine
     gameEngineRef.current = new GameEngine(canvas)
 
-    // Initialize audio manager
+    // Initialize audio manager and wire it to the game engine for in-game sound effects
     audioManagerRef.current = new AudioManager()
+    gameEngineRef.current.setAudioManager(audioManagerRef.current)
 
     // Initialize bluetooth manager
     bluetoothManagerRef.current = new BluetoothManager({
@@ -102,7 +104,7 @@ export default function StellarClash() {
     }
   }, [gameState])
 
-  const handleGameDataReceived = useCallback((data: any) => {
+  const handleGameDataReceived = useCallback((data: NetworkGameData) => {
     if (gameEngineRef.current) {
       gameEngineRef.current.handleNetworkUpdate(data)
     }
@@ -461,7 +463,7 @@ export default function StellarClash() {
                 <CardTitle className="text-sm">Technical Features</CardTitle>
               </CardHeader>
               <CardContent>
-                <ul className="bg-blue text-blue text-xs space-y-1 text-gray-400">
+                <ul className="text-xs space-y-1 text-gray-400">
                   <li>• Real-time physics simulation</li>
                   <li>• Bluetooth P2P networking</li>
                   <li>• Canvas-based rendering</li>
