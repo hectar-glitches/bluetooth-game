@@ -1,6 +1,8 @@
+import { NetworkGameData } from "./game-engine"
+
 interface BluetoothManagerOptions {
   onConnectionStateChange: (state: "disconnected" | "connecting" | "connected") => void
-  onGameDataReceived: (data: any) => void
+  onGameDataReceived: (data: NetworkGameData) => void
   onError: (error: string) => void
 }
 
@@ -103,7 +105,7 @@ export class BluetoothManager {
     }, 1000)
   }
 
-  async sendGameData(data: any): Promise<void> {
+  async sendGameData(data: NetworkGameData): Promise<void> {
     if (!this.characteristic) {
       console.warn("No characteristic available for sending data")
       return
