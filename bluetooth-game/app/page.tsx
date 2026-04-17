@@ -391,15 +391,24 @@ export default function StellarClash() {
                       <div className="space-y-1">
                         <div className="flex justify-between text-sm">
                           <span>Health</span>
-                          <span>{player.health}%</span>
+                          <span className={player.health < 30 ? "text-red-400 font-bold" : ""}>{player.health}%</span>
                         </div>
-                        <Progress value={player.health} className="h-2" />
+                        <Progress
+                          value={player.health}
+                          className="h-2"
+                          style={
+                            {
+                              "--progress-foreground":
+                                player.health < 30 ? "#ef4444" : player.health < 60 ? "#f97316" : "#22c55e",
+                            } as React.CSSProperties
+                          }
+                        />
                       </div>
 
                       <div className="space-y-1">
                         <div className="flex justify-between text-sm">
                           <span>Shield</span>
-                          <span>{player.shield}%</span>
+                          <span className={player.shield < 20 ? "text-blue-300" : ""}>{player.shield}%</span>
                         </div>
                         <Progress value={player.shield} className="h-2 bg-blue-900" />
                       </div>
@@ -407,7 +416,7 @@ export default function StellarClash() {
                       <div className="space-y-1">
                         <div className="flex justify-between text-sm">
                           <span>Energy</span>
-                          <span>{player.energy}%</span>
+                          <span className={player.energy < 20 ? "text-yellow-300" : ""}>{player.energy}%</span>
                         </div>
                         <Progress value={player.energy} className="h-2 bg-yellow-900" />
                       </div>
@@ -415,6 +424,7 @@ export default function StellarClash() {
                       <div className="flex justify-between text-xs text-gray-400">
                         <span>K: {player.kills}</span>
                         <span>D: {player.deaths}</span>
+                        <span>K/D: {player.deaths > 0 ? (player.kills / player.deaths).toFixed(1) : player.kills.toFixed(1)}</span>
                       </div>
                     </div>
                   ))}

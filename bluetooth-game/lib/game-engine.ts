@@ -122,6 +122,9 @@ export interface Particle {
  * Main game engine class responsible for managing all game objects, physics, rendering,
  * player input, and networking.
  */
+/** Maximum speed a player ship can travel (velocity units, applied as pixels per frame at 60 fps) */
+const MAX_PLAYER_SPEED = 8
+
 export class GameEngine {
   private canvas: HTMLCanvasElement               // Drawing surface
   private ctx: CanvasRenderingContext2D           // Canvas drawing context
@@ -138,6 +141,7 @@ export class GameEngine {
   private mouse: { x: number; y: number; pressed: boolean } = { x: 0, y: 0, pressed: false } // Mouse state
   private networkUpdateCallback?: (data: NetworkGameData) => void // Callback for sending network updates
   private audioManager?: AudioManager             // Optional audio manager for sound effects
+  private isShooting = false                      // Whether the player fired this frame
 
   // Stored event handler references so they can be properly removed in cleanup()
   private readonly handleKeyDown = (e: KeyboardEvent): void => {
@@ -377,6 +381,7 @@ export class GameEngine {
     const deltaTime = (now - this.lastUpdate) / 1000
     this.lastUpdate = now
     this.gameTime += deltaTime
+    this.isShooting = false
 
     this.updatePlayers(deltaTime)
     this.updateProjectiles(deltaTime)
@@ -404,6 +409,14 @@ export class GameEngine {
 
     // Update all players
     this.players.forEach((player) => {
+      // Clamp velocity to maximum speed
+      const speed = Math.sqrt(player.velocity.x ** 2 + player.velocity.y ** 2)
+      if (speed > MAX_PLAYER_SPEED) {
+        const scale = MAX_PLAYER_SPEED / speed
+        player.velocity.x *= scale
+        player.velocity.y *= scale
+      }
+
       // Apply physics
       player.position.x += player.velocity.x * deltaTime * 60
       player.position.y += player.velocity.y * deltaTime * 60
@@ -512,6 +525,7 @@ export class GameEngine {
     this.projectiles.push(projectile)
     player.weaponCooldown = GAME_CONFIG.WEAPON_COOLDOWN
     player.energy -= GAME_CONFIG.WEAPON_ENERGY_COST
+    this.isShooting = true
 
     this.audioManager?.playLaserShot()
     // Add muzzle flash particles
@@ -565,6 +579,7 @@ export class GameEngine {
 
   private updateAsteroids(deltaTime: number) {
     this.asteroids.forEach((asteroid) => {
+      if (!asteroid.active) return
       asteroid.position.x += asteroid.velocity.x * deltaTime * 60
       asteroid.position.y += asteroid.velocity.y * deltaTime * 60
       asteroid.rotation += asteroid.rotationSpeed
@@ -575,6 +590,11 @@ export class GameEngine {
       if (asteroid.position.y < -asteroid.size) asteroid.position.y = this.canvas.height + asteroid.size
       if (asteroid.position.y > this.canvas.height + asteroid.size) asteroid.position.y = -asteroid.size
     })
+
+    // Remove inactive asteroids (destroyed fragments) periodically to keep array tidy
+    if (this.asteroids.length > 100) {
+      this.asteroids = this.asteroids.filter((a) => a.active)
+    }
   }
 
   private updateParticles(deltaTime: number) {
@@ -594,6 +614,7 @@ export class GameEngine {
    * Detects and handles the following collision types:
    * - Player vs Projectile: Damages players when hit by projectiles
    * - Player vs PowerUp: Applies power-up effects to players
+   * - Player vs Asteroid: Damages player and bounces them away
    * - Projectile vs Asteroid: Damages asteroids and potentially destroys them
    */
   private checkCollisions() {
@@ -618,18 +639,89 @@ export class GameEngine {
           this.handlePowerUpCollection(player, powerUp)
         }
       })
+
+      // Player vs Asteroid collisions
+      this.asteroids.forEach((asteroid) => {
+        if (!asteroid.active) return
+        const distance = this.getDistance(player.position, asteroid.position)
+        const collisionRadius = asteroid.size + 14 // 14 ≈ ship half-width
+        if (distance < collisionRadius) {
+          this.handlePlayerAsteroidCollision(player, asteroid)
+        }
+      })
     })
 
     // Projectile vs Asteroid collisions
     this.projectiles.forEach((projectile, pIndex) => {
-      this.asteroids.forEach((asteroid) => {
+      this.asteroids.forEach((asteroid, aIndex) => {
+        if (!asteroid.active) return
         const distance = this.getDistance(projectile.position, asteroid.position)
         if (distance < asteroid.size) {
           this.addExplosionParticles(projectile.position, "orange")
           this.projectiles.splice(pIndex, 1)
+          this.damageAsteroid(asteroid, aIndex)
         }
       })
     })
+  }
+
+  /**
+   * Handles collision between a player ship and an asteroid.
+   * The player takes damage (bypassing shields) and bounces away from the asteroid.
+   * @param player The player that collided with the asteroid
+   * @param asteroid The asteroid that was hit
+   */
+  private handlePlayerAsteroidCollision(player: Player, asteroid: Asteroid) {
+    // Bounce the player away from the asteroid centre
+    const dx = player.position.x - asteroid.position.x
+    const dy = player.position.y - asteroid.position.y
+    const distance = Math.sqrt(dx * dx + dy * dy) || 1
+    const bounceForce = 3
+    player.velocity.x += (dx / distance) * bounceForce
+    player.velocity.y += (dy / distance) * bounceForce
+
+    // Collision damage goes directly to health (asteroids bypass shields)
+    const collisionDamage = 5
+    player.health = Math.max(0, player.health - collisionDamage)
+    this.addHitParticles(player.position)
+
+    if (player.health <= 0) {
+      this.handlePlayerDestroyed(player, "asteroid")
+    }
+  }
+
+  /**
+   * Reduces an asteroid's health and splits it into two smaller asteroids when destroyed.
+   * Small asteroids (size < 15) are simply removed without splitting.
+   * @param asteroid The asteroid to damage
+   * @param asteroidIndex Index in the asteroids array (used for removal)
+   */
+  private damageAsteroid(asteroid: Asteroid, asteroidIndex: number) {
+    asteroid.health -= 25
+    if (asteroid.health <= 0) {
+      asteroid.active = false
+      // Split into two smaller asteroids if large enough
+      if (asteroid.size >= 15) {
+        for (let i = 0; i < 2; i++) {
+          const fragment: Asteroid = {
+            id: `asteroid_frag_${Date.now()}_${i}`,
+            position: { ...asteroid.position },
+            velocity: {
+              x: asteroid.velocity.x + (Math.random() - 0.5) * 4,
+              y: asteroid.velocity.y + (Math.random() - 0.5) * 4,
+            },
+            rotation: Math.random() * Math.PI * 2,
+            rotationSpeed: (Math.random() - 0.5) * 0.2,
+            health: 25,
+            maxHealth: 25,
+            size: asteroid.size * 0.55,
+            active: true,
+          }
+          this.asteroids.push(fragment)
+        }
+      }
+      this.addExplosionParticles(asteroid.position, "orange")
+    }
   }
 
   /**
@@ -675,11 +767,13 @@ export class GameEngine {
       y: Math.random() * this.canvas.height,
     }
 
-    // Award kill to killer
-    const killer = this.players.get(killerId)
-    if (killer) {
-      killer.kills++
-      killer.score += GAME_CONFIG.KILL_SCORE
+    // Award kill to killer (only for player kills, not asteroid collisions)
+    if (killerId !== "asteroid") {
+      const killer = this.players.get(killerId)
+      if (killer) {
+        killer.kills++
+        killer.score += GAME_CONFIG.KILL_SCORE
+      }
     }
 
     this.audioManager?.playExplosion()
@@ -1006,6 +1100,7 @@ export class GameEngine {
    * @param asteroid The asteroid object to render
    */
   private drawAsteroid(asteroid: Asteroid) {
+    if (!asteroid.active) return
     this.ctx.save()
     this.ctx.translate(asteroid.position.x, asteroid.position.y)
     this.ctx.rotate(asteroid.rotation)
@@ -1125,18 +1220,86 @@ export class GameEngine {
     const localPlayer = this.players.get(this.localPlayerId)
     if (!localPlayer) return
 
-    // Draw crosshair
-    this.ctx.strokeStyle = "#ffffff"
+    // Draw crosshair – turns red when actively shooting, otherwise white
+    this.ctx.strokeStyle = this.isShooting ? "#ff4444" : "#ffffff"
     this.ctx.lineWidth = 1
+    this.ctx.globalAlpha = 0.8
     this.ctx.beginPath()
     this.ctx.moveTo(this.mouse.x - 10, this.mouse.y)
     this.ctx.lineTo(this.mouse.x + 10, this.mouse.y)
     this.ctx.moveTo(this.mouse.x, this.mouse.y - 10)
     this.ctx.lineTo(this.mouse.x, this.mouse.y + 10)
     this.ctx.stroke()
+    // Small centre dot
+    this.ctx.beginPath()
+    this.ctx.arc(this.mouse.x, this.mouse.y, 2, 0, Math.PI * 2)
+    this.ctx.strokeStyle = this.isShooting ? "#ff4444" : "#ffffff"
+    this.ctx.stroke()
+    this.ctx.globalAlpha = 1
+
+    // In-canvas HUD bars at bottom of screen
+    this.drawHUD(localPlayer)
 
     // Draw minimap
     this.drawMinimap()
+  }
+
+  /**
+   * Draws an in-canvas heads-up display showing the local player's health, shield, and energy
+   * as labelled bars at the bottom of the canvas.
+   * @param player The local player whose stats to display
+   */
+  private drawHUD(player: Player) {
+    const barWidth = 150
+    const barHeight = 10
+    const margin = 10
+    const bottomY = this.canvas.height - margin - barHeight
+    const spacing = barHeight + 6
+
+    // Semi-transparent background panel
+    this.ctx.fillStyle = "rgba(0, 0, 0, 0.5)"
+    this.ctx.fillRect(margin - 4, bottomY - spacing * 2 - 4, barWidth + 60, spacing * 3 + 6)
+
+    const drawBar = (
+      label: string,
+      value: number,
+      max: number,
+      fillColor: string,
+      yOffset: number,
+    ) => {
+      const y = bottomY - yOffset
+      const pct = Math.max(0, Math.min(1, value / max))
+
+      // Track background
+      this.ctx.fillStyle = "#222222"
+      this.ctx.fillRect(margin + 40, y, barWidth, barHeight)
+
+      // Fill
+      this.ctx.fillStyle = fillColor
+      this.ctx.fillRect(margin + 40, y, barWidth * pct, barHeight)
+
+      // Label
+      this.ctx.fillStyle = "#ffffff"
+      this.ctx.font = "10px monospace"
+      this.ctx.textAlign = "left"
+      this.ctx.fillText(label, margin, y + barHeight - 1)
+
+      // Value text
+      this.ctx.textAlign = "right"
+      this.ctx.fillText(`${Math.round(value)}`, margin + 40 + barWidth + 6, y + barHeight - 1)
+    }
+
+    // Health bar – colour shifts from green to red as health drops
+    const healthRatio = player.health / player.maxHealth
+    const healthColor =
+      healthRatio > 0.5
+        ? `hsl(${Math.round(healthRatio * 120)}, 80%, 45%)`
+        : `hsl(${Math.round(healthRatio * 120)}, 100%, 45%)`
+    drawBar("HP", player.health, player.maxHealth, healthColor, spacing * 2)
+    drawBar("SH", player.shield, player.maxShield, "#3399ff", spacing)
+    drawBar("EN", player.energy, player.maxEnergy, "#cccc00", 0)
+
+    this.ctx.textAlign = "left"
   }
 
   private drawMinimap() {
@@ -1149,15 +1312,17 @@ export class GameEngine {
     // Background
     this.ctx.fillStyle = "rgba(0, 0, 0, 0.5)"
     this.ctx.fillRect(minimapX, minimapY, minimapSize, minimapSize)
-    this.ctx.strokeStyle = "#ffffff"
+    this.ctx.strokeStyle = "#555555"
+    this.ctx.lineWidth = 1
     this.ctx.strokeRect(minimapX, minimapY, minimapSize, minimapSize)
 
-    // Players
-    this.players.forEach((player) => {
-      const x = minimapX + player.position.x * scaleX
-      const y = minimapY + player.position.y * scaleY
-      this.ctx.fillStyle = player.playerId === this.localPlayerId ? "#00ff00" : "#ff6600"
-      this.ctx.fillRect(x - 2, y - 2, 4, 4)
+    // Asteroids (drawn first so players appear on top)
+    this.asteroids.forEach((asteroid) => {
+      if (!asteroid.active) return
+      const x = minimapX + asteroid.position.x * scaleX
+      const y = minimapY + asteroid.position.y * scaleY
+      this.ctx.fillStyle = "#666666"
+      this.ctx.fillRect(x - 1, y - 1, 2, 2)
     })
 
     // Power-ups
@@ -1168,6 +1333,20 @@ export class GameEngine {
       this.ctx.fillStyle = this.getPowerUpColor(powerUp.type)
       this.ctx.fillRect(x - 1, y - 1, 2, 2)
     })
+
+    // Players
+    this.players.forEach((player) => {
+      const x = minimapX + player.position.x * scaleX
+      const y = minimapY + player.position.y * scaleY
+      this.ctx.fillStyle = player.playerId === this.localPlayerId ? "#00ff00" : "#ff6600"
+      this.ctx.fillRect(x - 2, y - 2, 4, 4)
+    })
+
+    // Minimap label
+    this.ctx.fillStyle = "rgba(255,255,255,0.5)"
+    this.ctx.font = "8px monospace"
+    this.ctx.textAlign = "left"
+    this.ctx.fillText("MAP", minimapX + 2, minimapY + 9)
   }
 
   startGame() {
