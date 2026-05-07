@@ -92,6 +92,40 @@ export class BluetoothManager {
     }
   }
 
+  async joinAsSpectator(): Promise<string> {
+    try {
+      this.options.onConnectionStateChange("connecting")
+
+      if (!navigator.bluetooth) {
+        throw new Error("Web Bluetooth is not supported in this browser")
+      }
+
+      this.device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [this.SERVICE_UUID],
+      })
+
+      this.device.addEventListener("gattserverdisconnected", () => {
+        this.options.onConnectionStateChange("disconnected")
+      })
+
+      this.server = await this.device.gatt!.connect()
+      this.simulateConnection()
+
+      const spectatorId = `spectator_${Date.now()}`
+      this.options.onConnectionStateChange("connected")
+      this.options.onGameDataReceived({
+        type: "spectatorJoin",
+        spectatorId,
+      })
+
+      return spectatorId
+    } catch (error) {
+      this.options.onConnectionStateChange("disconnected")
+      throw error
+    }
+  }
+
   private simulateConnection() {
     // Simulate receiving game data periodically
     setInterval(() => {

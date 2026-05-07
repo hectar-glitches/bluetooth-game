@@ -25,8 +25,17 @@ export const GAME_CONFIG = {
 
 // Zod schema for runtime validation of incoming (untrusted) network data
 const Vector2DSchema = z.object({ x: z.number(), y: z.number() })
+const SpectatorPlayerStateSchema = z.object({
+  playerId: z.string(),
+  position: Vector2DSchema,
+  rotation: z.number(),
+  score: z.number(),
+  kills: z.number(),
+  deaths: z.number(),
+})
 const NetworkGameDataSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ping"), timestamp: z.number() }),
+  z.object({ type: z.literal("spectatorJoin"), spectatorId: z.string() }),
   z.object({
     type: z.literal("playerUpdate"),
     playerId: z.string(),
@@ -36,12 +45,27 @@ const NetworkGameDataSchema = z.discriminatedUnion("type", [
     shield: z.number().min(0),
     energy: z.number().min(0),
   }),
+  z.object({
+    type: z.literal("spectatorState"),
+    gameTime: z.number().min(0),
+    players: z.array(SpectatorPlayerStateSchema),
+    projectiles: z.array(
+      z.object({
+        id: z.string(),
+        position: Vector2DSchema,
+        velocity: Vector2DSchema,
+        rotation: z.number(),
+        ownerId: z.string(),
+      }),
+    ),
+  }),
 ])
 
 /**
  * Type representing valid network messages exchanged between players
  */
 export type NetworkGameData = z.infer<typeof NetworkGameDataSchema>
+export type SpectatorPlayerState = z.infer<typeof SpectatorPlayerStateSchema>
 
 /**
  * Represents a 2D vector with x and y coordinates
@@ -69,6 +93,7 @@ export interface GameObject {
  */
 export interface Player extends GameObject {
   playerId: string          // Player's unique identifier
+  name: string              // Player display name
   score: number             // Current score
   kills: number             // Number of other players killed
   deaths: number            // Number of times player has died
@@ -136,6 +161,7 @@ export class GameEngine {
   private gameTime = 0                            // Elapsed game time in seconds
   private lastUpdate = 0                          // Last update timestamp
   private isHost = false                          // Whether this client is the host
+  private isSpectator = false                     // Whether this client is spectating
   private localPlayerId = ""                      // ID of the local player
   private keys: Set<string> = new Set()           // Currently pressed keys
   private mouse: { x: number; y: number; pressed: boolean } = { x: 0, y: 0, pressed: false } // Mouse state
@@ -211,6 +237,7 @@ export class GameEngine {
    */
   initializeAsHost(playerId: string) {
     this.isHost = true
+    this.isSpectator = false
     this.localPlayerId = playerId
     this.createPlayer(playerId, "Host", { x: 100, y: 300 })
   }
@@ -221,8 +248,17 @@ export class GameEngine {
    */
   initializeAsClient(playerId: string) {
     this.isHost = false
+    this.isSpectator = false
     this.localPlayerId = playerId
     this.createPlayer(playerId, "Client", { x: 700, y: 300 })
+  }
+
+  initializeAsSpectator(spectatorId: string) {
+    this.isHost = false
+    this.isSpectator = true
+    this.localPlayerId = spectatorId
+    this.players.clear()
+    this.projectiles = []
   }
 
   /**
@@ -293,6 +329,7 @@ export class GameEngine {
     const player: Player = {
       id,
       playerId: id,
+      name,
       position,
       velocity: { x: 0, y: 0 },
       rotation: 0,
@@ -383,7 +420,9 @@ export class GameEngine {
     this.gameTime += deltaTime
     this.isShooting = false
 
-    this.updatePlayers(deltaTime)
+    if (!this.isSpectator) {
+      this.updatePlayers(deltaTime)
+    }
     this.updateProjectiles(deltaTime)
     this.updatePowerUps(deltaTime)
     this.updateAsteroids(deltaTime)
@@ -401,6 +440,7 @@ export class GameEngine {
    * @private
    */
   private updatePlayers(deltaTime: number) {
+    if (this.isSpectator) return
     const localPlayer = this.players.get(this.localPlayerId)
     if (!localPlayer) return
 
@@ -457,6 +497,7 @@ export class GameEngine {
    * @param deltaTime Time elapsed since the last frame in seconds
    */
   private handlePlayerInput(player: Player, deltaTime: number) {
+    if (this.isSpectator) return
     const rotationSpeed = 3
 
     // Movement
@@ -1371,10 +1412,11 @@ export class GameEngine {
   }
 
   getGameStats() {
+    const viewerIsSpectator = this.isSpectator
     return {
       players: Array.from(this.players.values()).map((player) => ({
         id: player.playerId,
-        name: player.playerId === this.localPlayerId ? "You" : "Opponent",
+        name: viewerIsSpectator ? player.name : player.playerId === this.localPlayerId ? "You" : "Opponent",
         score: player.score,
         kills: player.kills,
         deaths: player.deaths,
@@ -1407,11 +1449,79 @@ export class GameEngine {
         player.energy = parsed.energy
       }
     }
+
+    if (parsed.type === "spectatorState" && this.isSpectator) {
+      this.gameTime = parsed.gameTime
+
+      const incomingIds = new Set(parsed.players.map((player) => player.playerId))
+      this.players.forEach((_, playerId) => {
+        if (!incomingIds.has(playerId)) {
+          this.players.delete(playerId)
+        }
+      })
+
+      parsed.players.forEach((playerState, index) => {
+        const existing = this.players.get(playerState.playerId)
+        if (existing) {
+          existing.position = playerState.position
+          existing.rotation = playerState.rotation
+          existing.score = playerState.score
+          existing.kills = playerState.kills
+          existing.deaths = playerState.deaths
+          existing.name = `Player ${index + 1}`
+          return
+        }
+
+        const created = this.createPlayer(playerState.playerId, `Player ${index + 1}`, playerState.position)
+        created.rotation = playerState.rotation
+        created.score = playerState.score
+        created.kills = playerState.kills
+        created.deaths = playerState.deaths
+      })
+
+      this.projectiles = parsed.projectiles.map((projectile) => ({
+        id: projectile.id,
+        position: projectile.position,
+        velocity: projectile.velocity,
+        rotation: projectile.rotation,
+        ownerId: projectile.ownerId,
+        damage: GAME_CONFIG.PROJECTILE_DAMAGE,
+        lifetime: GAME_CONFIG.PROJECTILE_LIFETIME,
+        health: 1,
+        maxHealth: 1,
+        active: true,
+      }))
+    }
   }
 
   private sendNetworkUpdate() {
+    if (!this.networkUpdateCallback) return
+
+    if (this.isHost) {
+      const spectatorUpdate: NetworkGameData = {
+        type: "spectatorState",
+        gameTime: this.gameTime,
+        players: Array.from(this.players.values()).map((player) => ({
+          playerId: player.playerId,
+          position: player.position,
+          rotation: player.rotation,
+          score: player.score,
+          kills: player.kills,
+          deaths: player.deaths,
+        })),
+        projectiles: this.projectiles.map((projectile) => ({
+          id: projectile.id,
+          position: projectile.position,
+          velocity: projectile.velocity,
+          rotation: projectile.rotation,
+          ownerId: projectile.ownerId,
+        })),
+      }
+      this.networkUpdateCallback(spectatorUpdate)
+    }
+
     const localPlayer = this.players.get(this.localPlayerId)
-    if (!localPlayer || !this.networkUpdateCallback) return
+    if (!localPlayer) return
 
     const update: NetworkGameData = {
       type: "playerUpdate",
@@ -1427,6 +1537,10 @@ export class GameEngine {
 
   setNetworkUpdateCallback(callback: (data: NetworkGameData) => void) {
     this.networkUpdateCallback = callback
+  }
+
+  getIsSpectatorMode() {
+    return this.isSpectator
   }
 
   cleanup() {
