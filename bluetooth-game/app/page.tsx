@@ -269,7 +269,7 @@ export default function StellarClash() {
               Stellar Clash
             </h1>
             <p className="text-center text-gray-400">Real-time Bluetooth Space Combat</p>
-            {isSpectator && <p className="text-center text-blue-300 text-sm">Spectating live match</p>}
+            {isSpectator && <p className="text-center text-blue-300 text-sm">Spectating a live match</p>}
           </div>
 
           <div className="flex gap-4">

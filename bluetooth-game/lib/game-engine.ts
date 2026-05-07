@@ -27,6 +27,7 @@ export const GAME_CONFIG = {
 const Vector2DSchema = z.object({ x: z.number(), y: z.number() })
 const SpectatorPlayerStateSchema = z.object({
   playerId: z.string(),
+  name: z.string(),
   position: Vector2DSchema,
   rotation: z.number(),
   score: z.number(),
@@ -1461,6 +1462,7 @@ export class GameEngine {
       parsed.players.forEach((playerState, index) => {
         const existing = this.players.get(playerState.playerId)
         if (existing) {
+          existing.name = playerState.name
           existing.position = playerState.position
           existing.rotation = playerState.rotation
           existing.score = playerState.score
@@ -1469,7 +1471,7 @@ export class GameEngine {
           return
         }
 
-        const created = this.createPlayer(playerState.playerId, `Player ${index + 1}`, playerState.position)
+        const created = this.createPlayer(playerState.playerId, playerState.name || `Player ${index + 1}`, playerState.position)
         created.rotation = playerState.rotation
         created.score = playerState.score
         created.kills = playerState.kills
@@ -1500,6 +1502,7 @@ export class GameEngine {
         gameTime: this.gameTime,
         players: Array.from(this.players.values()).map((player) => ({
           playerId: player.playerId,
+          name: player.name,
           position: player.position,
           rotation: player.rotation,
           score: player.score,
