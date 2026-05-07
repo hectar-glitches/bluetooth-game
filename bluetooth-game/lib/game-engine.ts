@@ -440,7 +440,6 @@ export class GameEngine {
    * @private
    */
   private updatePlayers(deltaTime: number) {
-    if (this.isSpectator) return
     const localPlayer = this.players.get(this.localPlayerId)
     if (!localPlayer) return
 
@@ -497,7 +496,6 @@ export class GameEngine {
    * @param deltaTime Time elapsed since the last frame in seconds
    */
   private handlePlayerInput(player: Player, deltaTime: number) {
-    if (this.isSpectator) return
     const rotationSpeed = 3
 
     // Movement
