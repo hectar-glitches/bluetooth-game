@@ -1459,7 +1459,7 @@ export class GameEngine {
         }
       })
 
-      parsed.players.forEach((playerState, index) => {
+      parsed.players.forEach((playerState) => {
         const existing = this.players.get(playerState.playerId)
         if (existing) {
           existing.name = playerState.name
@@ -1471,7 +1471,7 @@ export class GameEngine {
           return
         }
 
-        const created = this.createPlayer(playerState.playerId, playerState.name || `Player ${index + 1}`, playerState.position)
+        const created = this.createPlayer(playerState.playerId, playerState.name || playerState.playerId, playerState.position)
         created.rotation = playerState.rotation
         created.score = playerState.score
         created.kills = playerState.kills
