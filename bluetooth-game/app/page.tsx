@@ -43,6 +43,7 @@ export default function StellarClash() {
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected")
   const [gameState, setGameState] = useState<GameState>("lobby")
   const [isHost, setIsHost] = useState<boolean>(false)
+  const [isSpectator, setIsSpectator] = useState<boolean>(false)
   const [playerId, setPlayerId] = useState<string>("")
   const [error, setError] = useState<string>("")
   const [debugMode, setDebugMode] = useState<boolean>(false)
@@ -121,6 +122,7 @@ export default function StellarClash() {
         
         setPlayerId(hostId)
         setIsHost(true)
+        setIsSpectator(false)
         setConnectionState("connected")
         
         if (gameEngineRef.current) {
@@ -138,9 +140,13 @@ export default function StellarClash() {
       const id = await bluetoothManagerRef.current.startAsHost()
       setPlayerId(id)
       setIsHost(true)
+      setIsSpectator(false)
 
       if (gameEngineRef.current) {
         gameEngineRef.current.initializeAsHost(id)
+        gameEngineRef.current.setNetworkUpdateCallback((data) => {
+          bluetoothManagerRef.current?.sendGameData(data)
+        })
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start as host")
@@ -155,12 +161,38 @@ export default function StellarClash() {
       const id = await bluetoothManagerRef.current.joinGame()
       setPlayerId(id)
       setIsHost(false)
+      setIsSpectator(false)
 
       if (gameEngineRef.current) {
         gameEngineRef.current.initializeAsClient(id)
+        gameEngineRef.current.setNetworkUpdateCallback((data) => {
+          bluetoothManagerRef.current?.sendGameData(data)
+        })
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to join game")
+    }
+  }
+
+  const joinAsSpectator = async () => {
+    try {
+      setError("")
+      if (!bluetoothManagerRef.current) return
+
+      const id = await bluetoothManagerRef.current.joinAsSpectator()
+      setPlayerId(id)
+      setIsHost(false)
+      setIsSpectator(true)
+      setGameState("playing")
+
+      if (gameEngineRef.current) {
+        gameEngineRef.current.initializeAsSpectator(id)
+        gameEngineRef.current.setNetworkUpdateCallback((data) => {
+          bluetoothManagerRef.current?.sendGameData(data)
+        })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to join as spectator")
     }
   }
 
@@ -200,6 +232,7 @@ export default function StellarClash() {
     bluetoothManagerRef.current?.disconnect()
     setGameState("lobby")
     setPlayerId("")
+    setIsSpectator(false)
   }
 
   const toggleSound = () => {
@@ -236,6 +269,7 @@ export default function StellarClash() {
               Stellar Clash
             </h1>
             <p className="text-center text-gray-400">Real-time Bluetooth Space Combat</p>
+            {isSpectator && <p className="text-center text-blue-300 text-sm">Spectating a live match</p>}
           </div>
 
           <div className="flex gap-4">
@@ -292,10 +326,16 @@ export default function StellarClash() {
                               {debugMode ? "Start Debug Game" : "Host Battle"}
                             </Button>
                             {!debugMode && (
-                              <Button onClick={joinGame} variant="outline" size="lg" className="w-full">
-                                <Bluetooth className="w-4 h-4 mr-2" />
-                                Join Battle
-                              </Button>
+                              <>
+                                <Button onClick={joinGame} variant="outline" size="lg" className="w-full">
+                                  <Bluetooth className="w-4 h-4 mr-2" />
+                                  Join Battle
+                                </Button>
+                                <Button onClick={joinAsSpectator} variant="secondary" size="lg" className="w-full">
+                                  <Wifi className="w-4 h-4 mr-2" />
+                                  Join as Spectator
+                                </Button>
+                              </>
                             )}
                           </div>
                         ) : connectionState === "connected" ? (
@@ -351,7 +391,9 @@ export default function StellarClash() {
                   </Button>
                 </div>
               </CardHeader>
-              {showControls && (
+              {isSpectator ? (
+                <CardContent className="pt-0 text-sm text-gray-300">Spectator mode enabled (inputs are disabled).</CardContent>
+              ) : showControls && (
                 <CardContent className="pt-0">
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
@@ -387,39 +429,42 @@ export default function StellarClash() {
                         <span className="font-medium">{player.name}</span>
                         <Badge variant="outline">{player.score}</Badge>
                       </div>
+                      {!isSpectator && (
+                        <>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span>Health</span>
+                              <span className={player.health < 30 ? "text-red-400 font-bold" : ""}>{player.health}%</span>
+                            </div>
+                            <Progress
+                              value={player.health}
+                              className="h-2"
+                              style={
+                                {
+                                  "--progress-foreground":
+                                    player.health < 30 ? "#ef4444" : player.health < 60 ? "#f97316" : "#22c55e",
+                                } as React.CSSProperties
+                              }
+                            />
+                          </div>
 
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span>Health</span>
-                          <span className={player.health < 30 ? "text-red-400 font-bold" : ""}>{player.health}%</span>
-                        </div>
-                        <Progress
-                          value={player.health}
-                          className="h-2"
-                          style={
-                            {
-                              "--progress-foreground":
-                                player.health < 30 ? "#ef4444" : player.health < 60 ? "#f97316" : "#22c55e",
-                            } as React.CSSProperties
-                          }
-                        />
-                      </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span>Shield</span>
+                              <span className={player.shield < 20 ? "text-blue-300" : ""}>{player.shield}%</span>
+                            </div>
+                            <Progress value={player.shield} className="h-2 bg-blue-900" />
+                          </div>
 
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span>Shield</span>
-                          <span className={player.shield < 20 ? "text-blue-300" : ""}>{player.shield}%</span>
-                        </div>
-                        <Progress value={player.shield} className="h-2 bg-blue-900" />
-                      </div>
-
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span>Energy</span>
-                          <span className={player.energy < 20 ? "text-yellow-300" : ""}>{player.energy}%</span>
-                        </div>
-                        <Progress value={player.energy} className="h-2 bg-yellow-900" />
-                      </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span>Energy</span>
+                              <span className={player.energy < 20 ? "text-yellow-300" : ""}>{player.energy}%</span>
+                            </div>
+                            <Progress value={player.energy} className="h-2 bg-yellow-900" />
+                          </div>
+                        </>
+                      )}
 
                       <div className="flex justify-between text-xs text-gray-400">
                         <span>K: {player.kills}</span>
@@ -454,7 +499,7 @@ export default function StellarClash() {
             </div>
 
             {/* Game Actions */}
-            {gameState === "playing" && (
+            {gameState === "playing" && !isSpectator && (
               <Card className="bg-white/30 border-gray-700">
                 <CardContent className="pt-6 space-y-2">
                   <Button onClick={pauseGame} variant="outline" className="w-full bg-transparent">
