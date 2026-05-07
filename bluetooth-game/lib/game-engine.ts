@@ -1468,7 +1468,6 @@ export class GameEngine {
           existing.score = playerState.score
           existing.kills = playerState.kills
           existing.deaths = playerState.deaths
-          existing.name = `Player ${index + 1}`
           return
         }
 
